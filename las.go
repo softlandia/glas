@@ -483,7 +483,8 @@ func (o *Las) readDataSec(iScanner *bufio.Scanner) (int, error) {
 
 //Save - save to file
 //rewrite if file exist
-//TODO las have field filename of readed las file, after save filename must update or not. warning occure on write foк what file?
+//if useMnemonic == true then on save using std mnemonic on ~Curve section
+//TODO las have field filename of readed las file, after save filename must update or not? warning occure on write foк what file?
 func (o *Las) Save(fileName string, useMnemonic ...bool) error {
 	n := len(o.Logs) //log count
 	if n <= 0 {

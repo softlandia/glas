@@ -29,7 +29,7 @@ type Config struct {
 	NullReplace      bool
 	verifyDate       bool
 	logGoodReport    string
-	logPooreReport   string
+	logMessageReport string
 	logFailReport    string
 	logMissingReport string
 	lasWarningReport string
@@ -52,7 +52,7 @@ func readGlobalConfig(fileName string) (x *Config, err error) {
 	x.NullReplace, err = gini.Section("global").Key("replaceNull").Bool()
 	x.verifyDate, err = gini.Section("global").Key("verifyDate").Bool()
 	x.logGoodReport = gini.Section("global").Key("logGoodReport").String()
-	x.logPooreReport = gini.Section("global").Key("logPooreReport").String()
+	x.logMessageReport = gini.Section("global").Key("logMessageReport").String()
 	x.logFailReport = gini.Section("global").Key("logFailReport").String()
 	x.logMissingReport = gini.Section("global").Key("logMissingReport").String()
 	x.lasWarningReport = gini.Section("global").Key("lasWarningReport").String()

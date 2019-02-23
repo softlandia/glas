@@ -1,18 +1,13 @@
+// glas
 // Copyright 2018 softlandia@gmail.com
 // Обработка las файлов. Построение словаря и замена мнемоник на справочные
 
 package main
 
 import (
-	//	"errors"
-	//	"io"
-	"errors"
 	"fmt"
 	"log"
 	"os"
-	"sort"
-	"strings"
-	"time"
 
 	"github.com/softlandia/xlib"
 	"gopkg.in/ini.v1"
@@ -43,12 +38,13 @@ func main() {
 	fmt.Printf("precision: %v\n", Cfg.Epsilon)
 	fmt.Printf("debug level: %v\n", Cfg.LogLevel)
 	fmt.Printf("dictionary file: %v\n", Cfg.DicFile)
-	fmt.Printf("path: %v\n", Cfg.Path)
+	fmt.Printf("input path: %v\n", Cfg.Path)
+	fmt.Printf("output path: %v\n", Cfg.pathToRepaire)
 	fmt.Printf("command: %v\n", Cfg.Comand)
 	fmt.Printf("std NULL parameter: %v\n", Cfg.Null)
 	fmt.Printf("replace NULL: %v\n", Cfg.NullReplace)
 	fmt.Printf("verify date: %v\n", Cfg.verifyDate)
-	fmt.Printf("report files: '%s', '%s', '%s'\n", Cfg.logFailReport, Cfg.logPooreReport, Cfg.logGoodReport)
+	fmt.Printf("report files: '%s', '%s', '%s'\n", Cfg.logFailReport, Cfg.logMessageReport, Cfg.logGoodReport)
 	fmt.Printf("missing log report: %s\n", Cfg.logMissingReport)
 	fmt.Printf("warning report: %s\n", Cfg.lasWarningReport)
 
@@ -66,205 +62,22 @@ func main() {
 		log.Println("verify las:")
 	case "repair":
 		log.Println("repaire las:")
-		repairLas(&fileList, &Dic, Cfg.Path, Cfg.pathToRepaire)
+		repairLas(&fileList, &Dic, Cfg.Path, Cfg.pathToRepaire, Cfg.logMessageReport)
 	case "info":
 		log.Println("collect log info:")
-		statisticLas(&fileList, &Dic, Cfg.logFailReport, Cfg.logPooreReport, Cfg.logGoodReport, Cfg.lasWarningReport, Cfg.logMissingReport)
+		statisticLas(&fileList, &Dic, Cfg.logFailReport, Cfg.logMessageReport, Cfg.logGoodReport, Cfg.lasWarningReport, Cfg.logMissingReport)
 	}
-}
-
-func repaireOneFile(signal chan int, las *Las, inputFolder, folderOutput string, flag *int, msg *string) {
-	if las == nil {
-		*flag = 0
-		*msg = "las is nil"
-		signal <- 1
-		return
-	}
-	n, err := las.Open(las.FileName)
-	if las.Wraped() {
-		*flag = 1
-		*msg = fmt.Sprintf("las file %s ignored, WRAP=YES\n", las.FileName)
-		signal <- 1
-		return
-	}
-	if (n == 0) && (err != nil) {
-		*flag = 1
-		*msg = fmt.Sprintf("on las file %s, occure error: %v file ignore\n", las.FileName, err)
-		signal <- 1
-		return
-	}
-	las.FileName = strings.Replace(las.FileName, inputFolder, folderOutput, 1)
-
-	err = las.Save(las.FileName, true)
-	if err != nil {
-		*flag = 1
-		*msg = "error on save file: " + las.FileName
-		signal <- 1
-		return
-	}
-	*flag = 0
-	*msg = ""
-	signal <- 1
-	return
-}
-
-func repaireOneFileListener(signal chan int, count int, tStart time.Time) {
-	n := 0
-	for {
-		n += (<-signal)
-		if n >= count {
-			break
-		}
-		switch n {
-		case 100:
-		case 250:
-		case 500:
-		case 1000:
-			log.Printf("%d files done, elapsed: %v\n", n, time.Since(tStart))
-		}
-	}
-	log.Printf("%d files done, all done elapsed: %v\n press Enter", n, time.Since(tStart))
-}
-
-///////////////////////////////////////////
-//1. read las
-//2. save las to new folder
-func repairLas(fl *[]string, dic *map[string]string, inputFolder, folderOutput string) error {
-	if len(*fl) == 0 {
-		return errors.New("las files for repaire not ready")
-	}
-	var signal chan int = make(chan int)
-	go repaireOneFileListener(signal, len(*fl), time.Now())
-	for _, f := range *fl {
-		las := NewLas()
-		las.LogDic = &Mnemonic
-		las.VocDic = &Dic
-		las.FileName = f
-		flag := 0
-		msg := ""
-		go repaireOneFile(signal, las, inputFolder, folderOutput, &flag, &msg)
-		if flag == 1 {
-			fmt.Println(msg)
-		}
-		las = nil
-	}
-	var s string
-	fmt.Scanln(&s)
-	return nil
-}
-
-func statLas(signal chan int, oFile, wFile *os.File, missingMnemonic map[string]string, f string) {
-	las := NewLas()
-	las.LogDic = &Mnemonic
-	las.VocDic = &Dic
-	n, err := las.Open(f)
-
-	//amt := time.Duration(rand.Intn(250))
-	//time.Sleep(time.Millisecond * amt)
-
-	//write warnings
-	if len(las.warnings) > 0 {
-		wFile.WriteString("#file: " + las.FileName + "\n")
-		for i, w := range las.warnings {
-			fmt.Fprintf(wFile, "%d, dir: %d,\tsec: %d,\tl: %d,\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
-		}
-		wFile.WriteString("\n")
-	}
-	if las.Wraped() {
-		fmt.Printf("las file %s ignored, WRAP=YES\n", f)
-		las = nil
-		signal <- 1
-		return
-	}
-
-	if (n == 0) && (err != nil) {
-		fmt.Printf("on las file %s, occure error: %v file ignore\n", f, err)
-		las = nil
-		signal <- 1
-		return
-	}
-
-	fmt.Fprintf(oFile, "#logs in file: '%s':\n", f)
-	for k, v := range las.Logs {
-		if len(v.Mnemonic) == 0 {
-			fmt.Fprintf(oFile, "*input log: %s \t internal: %s \t mnemonic:%s*\n", v.iName, k, v.Mnemonic)
-			missingMnemonic[v.iName] = v.iName
-		} else {
-			fmt.Fprintf(oFile, "input log: %s \t internal: %s \t mnemonic: %s\n", v.iName, k, v.Mnemonic)
-		}
-	}
-	fmt.Fprintf(oFile, "\n")
-	las = nil
-	signal <- 1
-}
-
-func statLasListener(signal chan int, count int, tStart time.Time) {
-	n := 0
-	for {
-		n += (<-signal)
-		if n == count {
-			break
-		}
-	}
-	log.Printf(" prosess done, elapsed: %v\n press Enter", time.Since(tStart))
-}
-
-///////////////////////////////////////////
-//1. формируется список каротажей не имеющих словарной мнемоники - logMissingReport
-//2. формируется список ошибочных файлов - write to console (using log.)
-//3. формируется отчёт о предупреждениях при прочтении las файлов - lasWarningReport
-//4. формируется отчёт прочитанных файлах, для каких каротажей найдена подстановка, для каких нет - reportFail
-func statisticLas(fl *[]string, dic *map[string]string, reportFail, reportPoor, reportGood, lasWarningReport, logMissingReport string) error {
-	var missingMnemonic map[string]string
-	missingMnemonic = make(map[string]string)
-	var signal chan int = make(chan int)
-
-	log.Printf("make log statistic")
-	if len(*fl) == 0 {
-		return errors.New("file to statistic not found")
-	}
-	oFile, err := os.Create(reportFail)
-	if err != nil {
-		log.Print("report file: '", reportFail, "' not open to write, ", err)
-		return err
-	}
-	defer oFile.Close()
-	oFile.WriteString("###list of logs\n")
-
-	wFile, _ := os.Create(lasWarningReport)
-	defer wFile.Close()
-	wFile.WriteString("#list of warnings\n")
-
-	go statLasListener(signal, len(*fl), time.Now())
-	for _, f := range *fl {
-		go statLas(signal, oFile, wFile, missingMnemonic, f)
-	}
-	var s string
-	fmt.Scanln(&s)
-
-	mFile, _ := os.Create(logMissingReport)
-	defer mFile.Close()
-	mFile.WriteString("missing log\n")
-	keys := make([]string, 0, len(missingMnemonic))
-	for k := range missingMnemonic {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		mFile.WriteString(missingMnemonic[k] + "\n")
-	}
-	return nil
 }
 
 ///////////////////////////////////////////
 func verifyLas(fl *[]string) error {
-	log.Printf("action not define")
+	log.Printf("action 'verify' not define")
 	return nil
 }
 
 ///////////////////////////////////////////
 func convertCodePage(fl *[]string) error {
-	log.Printf("action not define")
+	log.Printf("action 'convert' not define")
 	return nil
 }
 
