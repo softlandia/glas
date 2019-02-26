@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/fatih/color"
 	"github.com/softlandia/xlib"
 	"gopkg.in/ini.v1"
 )
@@ -34,19 +35,24 @@ func main() {
 	//configuration & dictionaries are filled in here
 	//initialize() stop programm if error occure
 	initialize()
-	fmt.Printf("init ok.\n")
-	fmt.Printf("precision: %v\n", Cfg.Epsilon)
-	fmt.Printf("debug level: %v\n", Cfg.LogLevel)
-	fmt.Printf("dictionary file: %v\n", Cfg.DicFile)
-	fmt.Printf("input path: %v\n", Cfg.Path)
-	fmt.Printf("output path: %v\n", Cfg.pathToRepaire)
-	fmt.Printf("command: %v\n", Cfg.Comand)
-	fmt.Printf("std NULL parameter: %v\n", Cfg.Null)
-	fmt.Printf("replace NULL: %v\n", Cfg.NullReplace)
-	fmt.Printf("verify date: %v\n", Cfg.verifyDate)
-	fmt.Printf("report files: '%s', '%s', '%s'\n", Cfg.logFailReport, Cfg.logMessageReport, Cfg.logGoodReport)
-	fmt.Printf("missing log report: %s\n", Cfg.logMissingReport)
-	fmt.Printf("warning report: %s\n", Cfg.lasWarningReport)
+	color.Set(color.FgCyan)
+	fmt.Printf("init:\tok.\n")
+	fmt.Printf("precision:\t%v\n", Cfg.Epsilon)
+	fmt.Printf("debug level:\t%v\n", Cfg.LogLevel)
+	fmt.Printf("dictionary:\t%v\n", Cfg.DicFile)
+	fmt.Printf("input path:\t%v\n", Cfg.Path)
+	fmt.Printf("output path:\t%v\n", Cfg.pathToRepaire)
+	fmt.Printf("std NULL:\t%v\n", Cfg.Null)
+	fmt.Printf("replace NULL:\t%v\n", Cfg.NullReplace)
+	fmt.Printf("verify date:\t%v\n", Cfg.verifyDate)
+	fmt.Printf("report files:\t'%s', '%s'\n", Cfg.logFailReport, Cfg.logGoodReport)
+	fmt.Printf("message report:\t%s\n", Cfg.logMessageReport)
+	fmt.Printf("missing log:\t%s\n", Cfg.logMissingReport)
+	fmt.Printf("warning report:\t%s\n", Cfg.lasWarningReport)
+
+	color.Set(color.FgYellow, color.Bold)
+	fmt.Printf("command:\t%v\n", Cfg.Comand)
+	color.Unset()
 
 	fileList := make([]string, 0, 10)
 	//makeFilesList() stop programm if error occure
@@ -178,11 +184,8 @@ func makeFilesList(fileList *[]string, path string) int {
 
 //TEST - test read and write las files
 func TEST(m int) {
-	fmt.Printf("founded :%v las files", m)
-
 	//test file "1.las"
 	las := NewLas()
-	//las.setFromCodePage(Cfg.CodePage)
 	n, err := las.Open("1.las")
 	if n == 7 {
 		fmt.Println("TEST read 1.las OK")
@@ -190,6 +193,13 @@ func TEST(m int) {
 	} else {
 		fmt.Println("TEST read 1.las ERROR")
 		fmt.Println(err)
+	}
+	fmt.Printf("file 1.las, step from data: %v\n", las.getStepFromData("1.las"))
+	if len(las.warnings) > 0 {
+		for i, w := range las.warnings {
+			fmt.Printf("%d; dir: %d;\tsec: %d;\tl: %d;\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
+		}
+		fmt.Printf("\n")
 	}
 
 	err = las.setNull(Cfg.Null)

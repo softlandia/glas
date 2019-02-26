@@ -31,16 +31,22 @@ func repaireOneFile(signal chan int, las *Las, inputFolder, folderOutput string,
 		signal <- 1
 		return
 	}
-	if (n == 0) && (err != nil) {
-		*messages = append(*messages, fmt.Sprintf("on las file %s, occure error: %v file ignore\n", las.FileName, err))
+	if n == 0 {
+		*messages = append(*messages, fmt.Sprintf("on las file %s, **error**: %v file ignore\n", las.FileName, err))
 		signal <- 1
 		return
 	}
+	if err != nil {
+		//non critical error, continue
+		*messages = append(*messages, fmt.Sprintf("on las file %s, *warning*: %v\n", las.FileName, err))
+	}
+
 	las.FileName = strings.Replace(las.FileName, inputFolder, folderOutput, 1)
 
 	err = las.Save(las.FileName, true)
 	if err != nil {
-		*messages = append(*messages, "error on save file: "+las.FileName)
+		*messages = append(*messages, "error on save file: "+las.FileName+" :: ")
+		*messages = append(*messages, err.Error()+"\n")
 		signal <- 1
 		return
 	}
@@ -56,8 +62,8 @@ func repaireOneFileListener(signal chan int, count int, wg *sync.WaitGroup) {
 		n += (<-signal)
 		bar.Add(1)
 		if n >= count {
-			wg.Done()
-			fmt.Println()
+			wg.Done()     //заканчивается ЭТА горутина
+			fmt.Println() //прогресс-бар отрисован, новая строка
 			break
 		}
 	}
@@ -70,7 +76,7 @@ func repairLas(fl *[]string, dic *map[string]string, inputFolder, folderOutput, 
 	}
 	log.Printf("files count: %d", len(*fl))
 
-	var signal chan int = make(chan int)
+	var signal = make(chan int)
 	var wg sync.WaitGroup
 
 	messages := make([]string, 0, len(*fl))
@@ -85,7 +91,6 @@ func repairLas(fl *[]string, dic *map[string]string, inputFolder, folderOutput, 
 		las.LogDic = &Mnemonic
 		las.VocDic = &Dic
 		las.FileName = f
-		//msg := ""
 		go repaireOneFile(signal, las, inputFolder, folderOutput, &messages, &wg)
 		las = nil
 	}
@@ -110,27 +115,31 @@ func statLas(signal chan int, wg *sync.WaitGroup, oFile, wFile *os.File, missing
 
 	//write warnings
 	if len(las.warnings) > 0 {
-		wFile.WriteString("#file: " + las.FileName + "\n")
+		wFile.WriteString("**file: " + las.FileName + "**\n")
 		for i, w := range las.warnings {
-			fmt.Fprintf(wFile, "%d, dir: %d,\tsec: %d,\tl: %d,\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
+			fmt.Fprintf(wFile, "%d; dir: %d;\tsec: %d;\tl: %d;\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
 		}
 		wFile.WriteString("\n")
 	}
 	if las.Wraped() {
-		*messages = append(*messages, fmt.Sprintf("las file %s ignored, WRAP=YES\n", f))
+		*messages = append(*messages, fmt.Sprintf("las file '%s' ignore, WRAP=YES\n", f))
 		las = nil
 		signal <- 1
 		return
 	}
 
-	if (n == 0) && (err != nil) {
-		*messages = append(*messages, fmt.Sprintf("on las file %s, occure error: %v file ignore\n", f, err))
+	if n == 0 {
+		*messages = append(*messages, fmt.Sprintf("*error* on las file '%s', no data read ,*ignore*\n", f))
 		las = nil
 		signal <- 1
 		return
 	}
 
-	fmt.Fprintf(oFile, "#logs in file: '%s':\n", f)
+	if err != nil {
+		*messages = append(*messages, fmt.Sprintf("**warning** on las file '%s' : %v **passed**\n", f, err))
+	}
+
+	fmt.Fprintf(oFile, "##logs in file: '%s'##\n", f)
 	for k, v := range las.Logs {
 		if len(v.Mnemonic) == 0 {
 			fmt.Fprintf(oFile, "*input log: %s \t internal: %s \t mnemonic:%s*\n", v.iName, k, v.Mnemonic)
@@ -167,7 +176,7 @@ func statLasListener(signal chan int, count int, wg *sync.WaitGroup) {
 func statisticLas(fl *[]string, dic *map[string]string, reportFail, reportLog, reportGood, lasWarningReport, logMissingReport string) error {
 	var missingMnemonic map[string]string
 	missingMnemonic = make(map[string]string)
-	var signal chan int = make(chan int)
+	var signal = make(chan int)
 
 	log.Printf("make log statistic")
 	if len(*fl) == 0 {
@@ -179,15 +188,15 @@ func statisticLas(fl *[]string, dic *map[string]string, reportFail, reportLog, r
 		return err
 	}
 	defer oFile.Close()
-	oFile.WriteString("###list of logs\n")
+	oFile.WriteString("#list of logs#\n\n")
 
 	wFile, _ := os.Create(lasWarningReport)
 	defer wFile.Close()
-	wFile.WriteString("#list of warnings\n")
+	wFile.WriteString("#list of warnings#\n")
 
 	lFile, _ := os.Create(reportLog)
 	defer lFile.Close()
-	lFile.WriteString("#messages from statisticLas()\n")
+	lFile.WriteString("#messages from statisticLas()#\n")
 
 	var wg sync.WaitGroup
 	tStart := time.Now()

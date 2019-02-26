@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -18,7 +19,7 @@ import (
 ///format strings represent structure of LAS file
 const (
 	_LasFirstLine      = "~VERSION INFORMATION\n"
-	_LasVersion        = "VERS.                          %3.1f :/glas (c) softlandia@gmail.com/\n"
+	_LasVersion        = "VERS.                          %3.1f :glas (c) softlandia@gmail.com\n"
 	_LasCodePage       = "CPAGE.                         1251: code page \n"
 	_LasWrap           = "WRAP.                          NO  : ONE LINE PER DEPTH STEP\n"
 	_LasWellInfoSec    = "~WELL INFORMATION\n"
@@ -86,7 +87,51 @@ type Las struct {
 	fromCodePage int                //codepage input file. autodetect
 	toCodePage   int                //codepage to save file, default xlib.CpWindows1251. to special value, specify at make: NewLas(cp...)
 	iDuplicate   int                //индекс повторящейся мнемоники, увеличивается на 1 при нахождении дубля, начально 0
+	currentLine  int                //index of current line in readed file
 	warnings     []TWarning         //slice of warnings occure on read or write
+	stepWarning  int                //count of warning with step, if count > 10 then stop collecting
+}
+
+//getStepFromData - return step from data section
+//open and read 2 line from section ~A and determine step
+//close file
+//return <0 if error occure
+func (o *Las) getStepFromData(fileName string) float64 {
+	iFile, err := os.Open(fileName) // open file to READ
+	if err != nil {
+		return -1.0
+	}
+	defer iFile.Close()
+
+	_, iScanner, err := xlib.SeekFileToString(fileName, "~A")
+	if err != nil {
+		return -1.0
+	}
+
+	s := ""
+	j := 0
+	dept1 := 0.0
+	dept2 := 0.0
+	for i := 0; iScanner.Scan(); i++ {
+		s = strings.TrimSpace(iScanner.Text())
+		if (len(s) == 0) || (s[0] == '#') {
+			continue
+		}
+		k := strings.IndexRune(s, ' ')
+		if k < 0 { //data line must have minimum 2 column separated ' ' space
+			return -1.0
+		}
+		dept1, err = strconv.ParseFloat(s[:k], 64)
+		if err != nil {
+			return -1.0
+		}
+		j++
+		if j == 2 {
+			return math.Round((dept1-dept2)*10) / 10
+		}
+		dept2 = dept1
+	}
+	return 1.0
 }
 
 //setNull - change parameter NULL in WELL INFO section and in all logs
@@ -188,7 +233,11 @@ func (o *Las) selectSection(r rune) int {
 func (o *Las) testWellInfo() error {
 	//STEP
 	if o.Step == 0.0 {
-		return errors.New("invalid STEP parameter, equal 0")
+		o.Step = o.getStepFromData(o.FileName)
+		if o.Step < 0 {
+			return errors.New("invalid STEP parameter, equal 0. and invalid step in data")
+		}
+		o.addWarning(TWarning{directOnRead, lasSecWellInfo, -1, fmt.Sprintf("invalid STEP parameter, equal 0. replace to %4.3f", o.Step)})
 	}
 	if o.Null == 0.0 {
 		return errors.New("invalid NULL parameter")
@@ -197,6 +246,73 @@ func (o *Las) testWellInfo() error {
 		return errors.New("invalid STRT or STOP parameter, too small distance")
 	}
 	return nil
+}
+
+//Wraped - return true if las file have WRAP == YES
+func (o *Las) Wraped() bool {
+	return (strings.Index(o.Wrap, "Y") >= 0)
+}
+
+func (o *Las) addWarning(w TWarning) {
+	o.warnings = append(o.warnings, w)
+}
+
+//return Mnemonic from dictionary by Log Name
+//if Mnemonic not found return empty string ""
+func (o *Las) getMnemonic(logName string) string {
+	if (o.LogDic == nil) || (o.VocDic == nil) {
+		return "-"
+	}
+	v, ok := (*o.LogDic)[logName]
+	if ok { //GOOD - название каротажа равно мнемонике
+		return logName
+	}
+	v, ok = (*o.VocDic)[logName]
+	if ok { //POOR - название каротажа загружаемого файла найдено в словаре подстановок, мнемоника найдена
+		return v
+	}
+	return ""
+}
+
+//Разбор одной строки с мнемоникой каротажа
+//Разбираем в переменную l а потом сохраняем в map
+//Каждый каротаж характеризуется тремя именами
+//iName    - имя каротажа в исходном файле, может повторятся
+//Name     - ключ в map хранилище, повторятся не может. если в исходном есть повторение, то Name строится добавлением к iName индекса
+//Mnemonic - мнемоника, берётся из словаря. если в словаре не найдено, то оставляем iName
+func (o *Las) readCurveParam(s string) error {
+	l := LasLog{}
+	err := l.fromString(s)
+	if err != nil {
+		return err
+	}
+	l.iName = l.Name
+	l.Mnemonic = o.getMnemonic(l.iName)
+	if _, ok := o.Logs[l.Name]; ok {
+		o.iDuplicate++
+		s = fmt.Sprintf("%v", o.iDuplicate)
+		l.Name += s
+	}
+	l.Index = len(o.Logs)
+	m := o.getCountPoint()
+	l.dept = make([]float64, m)
+	l.log = make([]float64, m)
+	o.Logs[l.Name] = l
+	return nil
+}
+
+//оцениваем количество точек в файле
+func (o *Las) getCountPoint() int {
+	var m int
+	if math.Abs(o.Stop) > math.Abs(o.Strt) {
+		m = int((o.Stop-o.Strt)/o.Step) + 2
+	} else {
+		m = int((o.Strt-o.Stop)/o.Step) + 2
+	}
+	if m < 0 {
+		m = -m
+	}
+	return m
 }
 
 //loadHeader - read las file and load all section before dAta ~A
@@ -244,11 +360,6 @@ func (o *Las) loadHeader(fileName string) error {
 	return nil
 }
 
-//Wraped - return true if las file have WRAP == YES
-func (o *Las) Wraped() bool {
-	return (strings.Index(o.Wrap, "Y") >= 0)
-}
-
 //Open - load las file
 func (o *Las) Open(fileName string) (int, error) {
 	var err error
@@ -261,6 +372,7 @@ func (o *Las) Open(fileName string) (int, error) {
 		return 0, err
 	}
 
+	//open and close file
 	err = o.loadHeader(fileName)
 	if err != nil {
 		return 0, err
@@ -271,9 +383,10 @@ func (o *Las) Open(fileName string) (int, error) {
 		return 0, nil
 	}
 
-	iScanner, err := xlib.SeekFileToString(fileName, "~A")
-	if (iScanner != nil) && (err == nil) {
+	pos, iScanner, err := xlib.SeekFileToString(fileName, "~A")
+	if pos > 0 { //(iScanner != nil) && (err == nil) {
 		//pos in file at line "~A..."
+		o.currentLine = pos
 		return o.readDataSec(iScanner)
 	}
 	return 0, err
@@ -352,69 +465,6 @@ func (o *Las) readWellParam(s string) error {
 	return err
 }
 
-//return Mnemonic from dictionary by Log Name
-//if Mnemonic not found return empty string ""
-func (o *Las) getMnemonic(logName string) string {
-	if (o.LogDic == nil) || (o.VocDic == nil) {
-		return "-"
-	}
-	v, ok := (*o.LogDic)[logName]
-	if ok { //GOOD - название каротажа равно мнемонике
-		return logName
-	}
-	v, ok = (*o.VocDic)[logName]
-	if ok { //POOR - название каротажа загружаемого файла найдено в словаре подстановок, мнемоника найдена
-		return v
-	}
-	return ""
-}
-
-//Разбор одной строки с мнемоникой каротажа
-//Разбираем в переменную l а потом сохраняем в map
-//Каждый каротаж характеризуется тремя именами
-//iName    - имя каротажа в исходном файле, может повторятся
-//Name     - ключ в map хранилище, повторятся не может. если в исходном есть повторение, то Name строится добавлением к iName индекса
-//Mnemonic - мнемоника, берётся из словаря. если в словаре не найдено, то оставляем iName
-func (o *Las) readCurveParam(s string) error {
-	l := LasLog{}
-	err := l.fromString(s)
-	if err != nil {
-		return err
-	}
-	l.iName = l.Name
-	l.Mnemonic = o.getMnemonic(l.iName)
-	if _, ok := o.Logs[l.Name]; ok {
-		o.iDuplicate++
-		s = fmt.Sprintf("%v", o.iDuplicate)
-		//o.addWarning(TWarning{directOnRead, lasSecCurInfo, -1, "duplicate curve: '" + l.Name + "', rename to: '" + l.Name + s})
-		l.Name += s
-	}
-	l.Index = len(o.Logs)
-	m := o.getCountPoint()
-	l.dept = make([]float64, m)
-	l.log = make([]float64, m)
-	o.Logs[l.Name] = l
-	return nil
-}
-
-//оцениваем количество точек в файле
-func (o *Las) getCountPoint() int {
-	var m int
-	if math.Abs(o.Stop) > math.Abs(o.Strt) {
-		m = int((o.Stop-o.Strt)/o.Step) + 2
-	} else {
-		m = int((o.Strt-o.Stop)/o.Step) + 2
-	}
-	if m < 0 {
-		m = -m
-	}
-	return m
-}
-
-func (o *Las) addWarning(w TWarning) {
-	o.warnings = append(o.warnings, w)
-}
-
 //~ASCII Log Data
 // 1419.2000 -9999.000 -9999.000     2.186     2.187
 // 1419.3000 -9999.000 -9999.000     2.203     2.205
@@ -428,40 +478,59 @@ func (o *Las) readDataSec(iScanner *bufio.Scanner) (int, error) {
 		dept float64
 		i    int
 	)
+	o.currentLine++
 	n := len(o.Logs)
-	d, _ = o.logByIndex(0)
+	d, _ = o.logByIndex(0) //dept log
 	m := len(d.dept)
 	s := ""
 	for i = 0; iScanner.Scan(); i++ {
+		o.currentLine++
 		if i == m {
-			o.addWarning(TWarning{directOnRead, lasSecData, i, "actual number of data lines more than expected, check the parameters: STRT, STOP, STEP"})
-			break //count of lines may be more then (STOP-STRT)/STEP
+			o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, "actual number of data lines more than expected, check the parameters: STRT, STOP, STEP"})
+			break //count of lines may be more (STOP-STRT)/STEP
 		}
+
 		s = strings.TrimSpace(iScanner.Text())
+
 		//first column is DEPT
 		k := strings.IndexRune(s, ' ')
 		if k < 0 { //line must have n+1 column and n separated spaces block (+1 becouse first column DEPT)
 			o.nPoints = i
-			return i, errors.New("problem in data section, may be empty line, read stop")
+			return i, fmt.Errorf("problem in data section, line: %d, read stop", o.currentLine)
 		}
 		dept, err = strconv.ParseFloat(s[:k], 64)
 		if err != nil {
 			o.nPoints = i
-			return i, errors.New("problem in data section, first column contains not numeric, read stop")
+			return i, fmt.Errorf("problem in data section, line: %d, first column '%s' not numeric, read stop", o.currentLine, s[:k])
 		}
 		d.dept[i] = dept
+		if (i > 1) && (o.stepWarning < 10) {
+			if math.Pow(((dept-d.dept[i-1])-(d.dept[i-1]-d.dept[i-2])), 2) > 0.1 {
+				o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, fmt.Sprintf("step %5.2f ≠ previously step %5.2f", (dept - d.dept[i-1]), (d.dept[i-1] - d.dept[i-2]))})
+				dept = d.dept[i-1] + o.Step
+				o.stepWarning++
+			}
+			if math.Pow(((dept-d.dept[i-1])-o.Step), 2) > 0.1 {
+				o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, fmt.Sprintf("actual step %5.2f ≠ global STEP %5.2f", (dept - d.dept[i-1]), o.Step)})
+				o.stepWarning++
+			}
+		}
 		s = strings.TrimSpace(s[k+1:]) //cut first column
 		for j := 1; j < (n - 1); j++ {
 			iSpace := strings.IndexRune(s, ' ')
 			if iSpace < 0 {
 				o.nPoints = i
-				return i, errors.New("space not found, but not all columnd processed, read stop")
+				return i, fmt.Errorf("space not found, line: %d, but not all columnd processed, read stop", o.currentLine)
 			}
 			v, err = strconv.ParseFloat(s[:iSpace-1], 64)
+			if err != nil {
+				o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, fmt.Sprintf("can't convert string: '%s' to number, set to NULL", s[:iSpace-1])})
+				v = o.Null
+			}
 			l, err = o.logByIndex(j)
 			if err != nil {
 				o.nPoints = i
-				return i, errors.New("error convert to number or too much column, read stop")
+				return i, errors.New("too much column, read stop")
 			}
 			l.dept[i] = dept
 			l.log[i] = v
@@ -484,18 +553,26 @@ func (o *Las) readDataSec(iScanner *bufio.Scanner) (int, error) {
 //Save - save to file
 //rewrite if file exist
 //if useMnemonic == true then on save using std mnemonic on ~Curve section
-//TODO las have field filename of readed las file, after save filename must update or not? warning occure on write foк what file?
+//TODO las have field filename of readed las file, after save filename must update or not? warning occure on write for what file?
 func (o *Las) Save(fileName string, useMnemonic ...bool) error {
 	n := len(o.Logs) //log count
 	if n <= 0 {
 		return errors.New("logs not exist")
 	}
 
-	f, err := os.Create(fileName) //Open file to WRITE
-	if err != nil {
-		return errors.New("file: '" + fileName + "' can't open to write")
+	var f *os.File
+	var err error
+	if !xlib.FileExists(fileName) {
+		err = os.MkdirAll(filepath.Dir(fileName), os.ModePerm)
+		if err != nil {
+			return errors.New("path: '" + filepath.Dir(fileName) + "' can't create >>" + err.Error())
+		}
+		f, err = os.Create(fileName) //Open file to WRITE
+		if err != nil {
+			return errors.New("file: '" + fileName + "' can't open to write >>" + err.Error())
+		}
+		defer f.Close()
 	}
-	defer f.Close()
 
 	fmt.Fprintf(f, _LasFirstLine)
 	fmt.Fprintf(f, _LasVersion, o.Ver)
@@ -510,7 +587,7 @@ func (o *Las) Save(fileName string, useMnemonic ...bool) error {
 	fmt.Fprintf(f, _LasCurvSec)
 	fmt.Fprintf(f, _LasCurvDept)
 
-	s := _LasDataSec + " DEPT  |" //готовим строчку с названиями каротажей //глубина всегда присутствует
+	s := _LasDataSec + " DEPT  |" //готовим строчку с названиями каротажей глубина всегда присутствует
 	var l *LasLog
 	for i := 1; i < n; i++ { //Пишем названия каротажей
 		l, _ := o.logByIndex(i)
@@ -519,8 +596,8 @@ func (o *Las) Save(fileName string, useMnemonic ...bool) error {
 				l.Name = l.Mnemonic
 			}
 		}
-		fmt.Fprintf(f, _LasCurvLine, o.convertStrToOut(l.Name), o.convertStrToOut(l.Unit))
-		s += " " + fmt.Sprintf("%-8s|", l.Name) //Собираем строчку с названиями каротажей
+		fmt.Fprintf(f, _LasCurvLine, o.convertStrToOut(l.Name), o.convertStrToOut(l.Unit)) //запись мнемоник в секции ~Curve
+		s += " " + fmt.Sprintf("%-8s|", l.Name)                                            //Собираем строчку с названиями каротажей
 	}
 
 	//write data
