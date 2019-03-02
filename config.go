@@ -29,10 +29,11 @@ type Config struct {
 	NullReplace      bool
 	verifyDate       bool
 	logGoodReport    string
-	logMessageReport string
 	logFailReport    string
 	logMissingReport string
+	lasMessageReport string
 	lasWarningReport string
+	maxWarningCount  int
 }
 
 ////////////////////////////////////////////////////////////
@@ -52,11 +53,12 @@ func readGlobalConfig(fileName string) (x *Config, err error) {
 	x.NullReplace, err = gini.Section("global").Key("replaceNull").Bool()
 	x.verifyDate, err = gini.Section("global").Key("verifyDate").Bool()
 	x.logGoodReport = gini.Section("global").Key("logGoodReport").String()
-	x.logMessageReport = gini.Section("global").Key("logMessageReport").String()
 	x.logFailReport = gini.Section("global").Key("logFailReport").String()
 	x.logMissingReport = gini.Section("global").Key("logMissingReport").String()
+	x.lasMessageReport = gini.Section("global").Key("lasMessageReport").String()
 	x.lasWarningReport = gini.Section("global").Key("lasWarningReport").String()
-	return x, nil
+	x.maxWarningCount, _ = gini.Section("global").Key("maxWarningCount").Int()
+	return x, err
 }
 
 func readConfig(ConfigName string) (x *Config, err error) {

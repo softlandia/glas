@@ -18,7 +18,7 @@ import (
 
 //1. read las
 //2. save las to new folder
-func repaireOneFile(signal chan int, las *Las, inputFolder, folderOutput string, messages *[]string, wg *sync.WaitGroup) {
+func repaireOneFile(signal chan int, las *Las, inputFolder, folderOutput string, wFile *os.File, messages *[]string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if las == nil {
 		*messages = append(*messages, "las is nil")
@@ -26,6 +26,14 @@ func repaireOneFile(signal chan int, las *Las, inputFolder, folderOutput string,
 		return
 	}
 	n, err := las.Open(las.FileName)
+	if len(las.warnings) > 0 {
+		wFile.WriteString("**file: " + las.FileName + "**\n")
+		for i, w := range las.warnings {
+			fmt.Fprintf(wFile, "%d; dir: %d;\tsec: %d;\tl: %d;\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
+		}
+		wFile.WriteString("\n")
+	}
+
 	if las.Wraped() {
 		*messages = append(*messages, fmt.Sprintf("las file %s ignored, WRAP=YES\n", las.FileName))
 		signal <- 1
@@ -70,7 +78,7 @@ func repaireOneFileListener(signal chan int, count int, wg *sync.WaitGroup) {
 }
 
 ///////////////////////////////////////////
-func repairLas(fl *[]string, dic *map[string]string, inputFolder, folderOutput, logFile string) error {
+func repairLas(fl *[]string, dic *map[string]string, inputFolder, folderOutput, messageReport, warningReport string) error {
 	if len(*fl) == 0 {
 		return errors.New("las files for repaire not ready")
 	}
@@ -78,6 +86,9 @@ func repairLas(fl *[]string, dic *map[string]string, inputFolder, folderOutput, 
 
 	var signal = make(chan int)
 	var wg sync.WaitGroup
+
+	warnFile, _ := os.Create(warningReport)
+	defer warnFile.Close()
 
 	messages := make([]string, 0, len(*fl))
 	tStart := time.Now()
@@ -91,12 +102,12 @@ func repairLas(fl *[]string, dic *map[string]string, inputFolder, folderOutput, 
 		las.LogDic = &Mnemonic
 		las.VocDic = &Dic
 		las.FileName = f
-		go repaireOneFile(signal, las, inputFolder, folderOutput, &messages, &wg)
+		go repaireOneFile(signal, las, inputFolder, folderOutput, warnFile, &messages, &wg)
 		las = nil
 	}
 	wg.Wait()
 	log.Printf("all done, elapsed: %v\n", time.Since(tStart))
-	lFile, err := os.Create(logFile)
+	lFile, err := os.Create(messageReport)
 	defer lFile.Close()
 	if err == nil {
 		for _, msg := range messages {
@@ -173,7 +184,7 @@ func statLasListener(signal chan int, count int, wg *sync.WaitGroup) {
 //2. формируется список ошибочных файлов - write to console (using log.)
 //3. формируется отчёт о предупреждениях при прочтении las файлов - lasWarningReport
 //4. формируется отчёт прочитанных файлах, для каких каротажей найдена подстановка, для каких нет - reportFail
-func statisticLas(fl *[]string, dic *map[string]string, reportFail, reportLog, reportGood, lasWarningReport, logMissingReport string) error {
+func statisticLas(fl *[]string, dic *map[string]string, reportLogList, reportLog, lasWarningReport, logMissingReport string) error {
 	var missingMnemonic map[string]string
 	missingMnemonic = make(map[string]string)
 	var signal = make(chan int)
@@ -182,9 +193,9 @@ func statisticLas(fl *[]string, dic *map[string]string, reportFail, reportLog, r
 	if len(*fl) == 0 {
 		return errors.New("file to statistic not found")
 	}
-	oFile, err := os.Create(reportFail)
+	oFile, err := os.Create(reportLogList)
 	if err != nil {
-		log.Print("report file: '", reportFail, "' not open to write, ", err)
+		log.Print("report file: '", reportLogList, "' not open to write, ", err)
 		return err
 	}
 	defer oFile.Close()
@@ -207,7 +218,7 @@ func statisticLas(fl *[]string, dic *map[string]string, reportFail, reportLog, r
 
 	for _, f := range *fl {
 		wg.Add(1)
-		go statLas(signal, &wg, oFile, wFile, missingMnemonic, f, &messages)
+		go statLas(signal, &wg, oFile, wFile, missingMnemonic, f, &messages) //TODO наблюдается несинхронная запись в файл log.ingo.md
 	}
 	wg.Wait()
 	log.Printf("info done, elapsed: %v\n", time.Since(tStart))

@@ -29,12 +29,82 @@ var (
 	Dic map[string]string
 )
 
+// comandLineParameters - check input parameters
+// >glas w "d:\input" "e:\output"
+func comandLineParameters() bool {
+	//back door for TEST
+	if (len(os.Args) == 2) && (os.Args[1] == "-") {
+		color.Set(color.FgYellow, color.Bold)
+		fmt.Printf("WARNING! using glas.ini command\n")
+		color.Unset()
+		return true
+	}
+	if len(os.Args) < 3 { //minimum: glas w d:\input
+		fmt.Printf("using: >glas c 'd:\\input' 'e:\\output'\n")
+		fmt.Printf("c - command: i, x\n")
+		fmt.Printf("'d:\\input'  - path to exist folder\n")
+		fmt.Printf("'d:\\output' - path to exist folder\n")
+		return false
+	}
+	if len(os.Args[1]) > 1 { //command only one symbol
+		fmt.Print("using: >glas ")
+		color.Set(color.FgYellow, color.Bold)
+		fmt.Print("C")
+		color.Unset()
+		fmt.Printf(" 'd:\\input' 'e:\\output'\n")
+		fmt.Printf("C - command must be 'i' or 'x'\n")
+		fmt.Printf("You entered the wrong command: '%s'\n", os.Args[1])
+		return false
+	}
+	switch os.Args[1] {
+	case "i":
+		Cfg.Comand = "info"
+	case "x":
+		Cfg.Comand = "repair"
+	default:
+		Cfg.Comand = "test"
+	}
+	if !xlib.FileExists(os.Args[2]) {
+		fmt.Print("using: >glas w 'd:\\input' 'e:\\output'\n")
+		fmt.Print("input folder: ")
+		color.Set(color.FgYellow, color.Bold)
+		fmt.Printf("'%s'", os.Args[2])
+		color.Unset()
+		fmt.Print(" not exist\n")
+		return false
+	}
+	//path to input folder ok
+	Cfg.Path = os.Args[2]
+
+	if len(os.Args) == 4 { //full version: glas x c:\idata c:\odata
+		if !xlib.FileExists(os.Args[3]) {
+			fmt.Print("using: >glas w 'd:\\input' ")
+			fmt.Printf("'e:\\output'\n")
+			fmt.Printf("output folder: ")
+			color.Set(color.FgYellow, color.Bold)
+			fmt.Printf("'%s'", os.Args[3])
+			color.Unset()
+			fmt.Printf(" not exist\n")
+			return false
+		}
+		//path to otput folder ok
+		Cfg.pathToRepaire = os.Args[3]
+	}
+	return true
+}
+
 //============================================================================
 func main() {
 	log.Println("start ", os.Args[0])
 	//configuration & dictionaries are filled in here
 	//initialize() stop programm if error occure
+	//initialize() read glas.ini file and configure global var Cfg
 	initialize()
+	//comand line parameters rather then ini file
+	//and redefine if exist
+	if !comandLineParameters() {
+		os.Exit(1)
+	}
 	color.Set(color.FgCyan)
 	fmt.Printf("init:\tok.\n")
 	fmt.Printf("precision:\t%v\n", Cfg.Epsilon)
@@ -46,7 +116,7 @@ func main() {
 	fmt.Printf("replace NULL:\t%v\n", Cfg.NullReplace)
 	fmt.Printf("verify date:\t%v\n", Cfg.verifyDate)
 	fmt.Printf("report files:\t'%s', '%s'\n", Cfg.logFailReport, Cfg.logGoodReport)
-	fmt.Printf("message report:\t%s\n", Cfg.logMessageReport)
+	fmt.Printf("message report:\t%s\n", Cfg.lasMessageReport)
 	fmt.Printf("missing log:\t%s\n", Cfg.logMissingReport)
 	fmt.Printf("warning report:\t%s\n", Cfg.lasWarningReport)
 
@@ -68,10 +138,10 @@ func main() {
 		log.Println("verify las:")
 	case "repair":
 		log.Println("repaire las:")
-		repairLas(&fileList, &Dic, Cfg.Path, Cfg.pathToRepaire, Cfg.logMessageReport)
+		repairLas(&fileList, &Dic, Cfg.Path, Cfg.pathToRepaire, Cfg.lasMessageReport, Cfg.lasWarningReport)
 	case "info":
 		log.Println("collect log info:")
-		statisticLas(&fileList, &Dic, Cfg.logFailReport, Cfg.logMessageReport, Cfg.logGoodReport, Cfg.lasWarningReport, Cfg.logMissingReport)
+		statisticLas(&fileList, &Dic, Cfg.logFailReport, Cfg.lasMessageReport, Cfg.lasWarningReport, Cfg.logMissingReport)
 	}
 }
 
@@ -157,8 +227,8 @@ func initialize() {
 	}
 }
 
-//----------------------------------------------------------------------------
-//makeFilesList - find and load to array all founded las files
+// makeFilesList - find and load to array all founded las files
+//TODO makeFilesList() there is no need to exit the program when an error occurs
 func makeFilesList(fileList *[]string, path string) int {
 	n, err := xlib.FindFilesExt(fileList, Cfg.Path, ".las")
 	if err != nil {
@@ -171,7 +241,7 @@ func makeFilesList(fileList *[]string, path string) int {
 		log.Println("stop")
 		os.Exit(5)
 	}
-	if Cfg.LogLevel == "INFO" {
+	if Cfg.LogLevel == "DEBUG" {
 		log.Println("founded ", n, " las files:")
 		if Cfg.LogLevel == "DEBUG" {
 			for i, s := range *fileList {
@@ -182,7 +252,8 @@ func makeFilesList(fileList *[]string, path string) int {
 	return n
 }
 
-//TEST - test read and write las files
+// TEST - test read and write las files
+//TODO report las.warning.md written without filename
 func TEST(m int) {
 	//test file "1.las"
 	las := NewLas()
@@ -191,15 +262,8 @@ func TEST(m int) {
 		fmt.Println("TEST read 1.las OK")
 		fmt.Println(err)
 	} else {
-		fmt.Println("TEST read 1.las ERROR")
+		fmt.Printf("TEST read 1.las ERROR, n = %d, must 7\n", n)
 		fmt.Println(err)
-	}
-	fmt.Printf("file 1.las, step from data: %v\n", las.getStepFromData("1.las"))
-	if len(las.warnings) > 0 {
-		for i, w := range las.warnings {
-			fmt.Printf("%d; dir: %d;\tsec: %d;\tl: %d;\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
-		}
-		fmt.Printf("\n")
 	}
 
 	err = las.setNull(Cfg.Null)
@@ -225,7 +289,7 @@ func TEST(m int) {
 	}
 
 	las = nil
-	las = NewLas(xlib.Cp866)
+	las = NewLas()
 	n, err = las.Open("2.las")
 	if n == 4895 {
 		fmt.Println("TEST read 2.las OK")
@@ -243,17 +307,31 @@ func TEST(m int) {
 	}
 	las = nil
 
-	las = NewLas(xlib.CpWindows1251)
-	_, err = las.Open("4.las")
+	las = NewLas()
+	n, err = las.Open("4.las")
 	if err != nil {
 		fmt.Printf("error: %v\n", err)
 	}
-	err = las.Save("-4.las")
-	if err != nil {
-		fmt.Printf("error: %v\n", err)
+	if n == 23 {
+		fmt.Printf("TEST read 4.las OK, count data must 23, actualy: %d\n", n)
+	} else {
+		fmt.Printf("TEST read 4.las ERROR, count data must 23, actualy: %d\n", n)
 	}
 	oFile, _ := os.Create(Cfg.lasWarningReport)
 	defer oFile.Close()
+	oFile.WriteString("file: " + las.FileName + "\n")
+	for i, w := range las.warnings {
+		fmt.Fprintf(oFile, "%d, dir: %d,\tsec: %d,\tl: %d,\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
+	}
+
+	las.FileName = "-4.las"
+	err = las.Save(las.FileName)
+	if err != nil {
+		fmt.Printf("error: %v on save file -4.las\n", err)
+	} else {
+		fmt.Printf("save file -4.las OK\n")
+	}
+	oFile.WriteString("save file: " + las.FileName + "\n")
 	for i, w := range las.warnings {
 		fmt.Fprintf(oFile, "%d, dir: %d,\tsec: %d,\tl: %d,\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
 	}

@@ -64,11 +64,12 @@ type LasLog struct {
 	log   []float64
 }
 
-//Las - class to store las file
-//input code page autodetect
-//at read file always code page converted to UTF
-//at save file code page converted to specifyed in Las.toCodePage
-//add pointer to cfg
+// Las - class to store las file
+// input code page autodetect
+// at read file always code page converted to UTF
+// at save file code page converted to specifyed in Las.toCodePage
+//TODO add pointer to cfg
+//TODO warnings - need method to flush slice on file, and clear
 type Las struct {
 	FileName     string             //file name from load
 	Ver          float64            //version 1.0, 1.2 or 2.0
@@ -83,13 +84,14 @@ type Las struct {
 	Logs         map[string]LasLog  //store all logs
 	LogDic       *map[string]string //external dictionary of standart log name - mnemonics
 	VocDic       *map[string]string //external vocabulary dictionary of log mnemonic
+	expPoints    int                //expected count (.)
 	nPoints      int                //actually count (.)
 	fromCodePage int                //codepage input file. autodetect
 	toCodePage   int                //codepage to save file, default xlib.CpWindows1251. to special value, specify at make: NewLas(cp...)
 	iDuplicate   int                //индекс повторящейся мнемоники, увеличивается на 1 при нахождении дубля, начально 0
 	currentLine  int                //index of current line in readed file
 	warnings     []TWarning         //slice of warnings occure on read or write
-	stepWarning  int                //count of warning with step, if count > 10 then stop collecting
+	countWarning int                //count of warning, if count > 20 then stop collecting
 }
 
 //getStepFromData - return step from data section
@@ -240,9 +242,11 @@ func (o *Las) testWellInfo() error {
 		o.addWarning(TWarning{directOnRead, lasSecWellInfo, -1, fmt.Sprintf("invalid STEP parameter, equal 0. replace to %4.3f", o.Step)})
 	}
 	if o.Null == 0.0 {
-		return errors.New("invalid NULL parameter")
+		o.Null = Cfg.Null
+		o.addWarning(TWarning{directOnRead, lasSecWellInfo, -1, fmt.Sprintf("invalid NULL parameter, equal 0. replace to %4.3f", o.Null)})
 	}
 	if math.Abs(o.Stop-o.Strt) < 0.2 {
+		//TODO replace error to warning. invalid STRT and/or STOP replace to actual
 		return errors.New("invalid STRT or STOP parameter, too small distance")
 	}
 	return nil
@@ -254,7 +258,14 @@ func (o *Las) Wraped() bool {
 }
 
 func (o *Las) addWarning(w TWarning) {
-	o.warnings = append(o.warnings, w)
+	if o.countWarning < Cfg.maxWarningCount {
+		//w.desc = fmt.Sprintf("file: '%s' > "+w.desc, o.FileName)
+		o.warnings = append(o.warnings, w)
+		o.countWarning++
+		if o.countWarning == Cfg.maxWarningCount {
+			o.warnings = append(o.warnings, TWarning{0, 0, 0, "*maximum count* of warning reached, change parameter 'maxWarningCount' in 'glas.ini'"})
+		}
+	}
 }
 
 //return Mnemonic from dictionary by Log Name
@@ -294,7 +305,8 @@ func (o *Las) readCurveParam(s string) error {
 		l.Name += s
 	}
 	l.Index = len(o.Logs)
-	m := o.getCountPoint()
+	//m := o.getCountPoint()
+	m := o.expPoints
 	l.dept = make([]float64, m)
 	l.log = make([]float64, m)
 	o.Logs[l.Name] = l
@@ -340,12 +352,14 @@ func (o *Las) loadHeader(fileName string) error {
 		s = o.convertStrFromIn(s)
 		if s[0] == '~' { //start new section
 			secNum = o.selectSection(rune(s[1]))
-			if secNum == lasSecCurInfo {
+			if secNum == lasSecCurInfo { //enter to Curve section.
 				//проверка корректности данных секции WELL INFO перез загрузкой кривых и данных
-				err = o.testWellInfo()
+				err = o.testWellInfo() //STEP != 0, NULL != 0, STRT & STOP
 				if err != nil {
 					return err
 				}
+				//возможно значение STEP изменилось... оцениваем количество точек и сохраняем
+				o.expPoints = o.getCountPoint()
 			}
 			if secNum == lasSecData {
 				break // dAta section read after //exit from for
@@ -384,7 +398,7 @@ func (o *Las) Open(fileName string) (int, error) {
 	}
 
 	pos, iScanner, err := xlib.SeekFileToString(fileName, "~A")
-	if pos > 0 { //(iScanner != nil) && (err == nil) {
+	if pos > 0 {
 		//pos in file at line "~A..."
 		o.currentLine = pos
 		return o.readDataSec(iScanner)
@@ -465,9 +479,45 @@ func (o *Las) readWellParam(s string) error {
 	return err
 }
 
+//expandDept - if actually data points exceeds
+func (o *Las) expandDept(d *LasLog) {
+	//actual number of points more then expected
+	o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, "actual number of data lines more than expected, check: STRT, STOP, STEP"})
+	o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, "expand number of points"})
+	//ожидаем удвоения данных
+	o.expPoints *= 2
+	//need expand all logs
+	//fmt.Printf("old dept len: %d, cap: %d\n", len(d.dept), cap(d.dept))
+
+	newDept := make([]float64, o.expPoints, o.expPoints)
+	copy(newDept, d.dept)
+	d.dept = newDept
+
+	newLog := make([]float64, o.expPoints, o.expPoints)
+	copy(newLog, d.dept)
+	d.log = newLog
+	o.Logs[d.Name] = *d
+
+	//fmt.Printf("new dept len: %d, cap: %d\n", len(d.dept), cap(d.dept))
+	//loop over other logs
+	n := len(o.Logs)
+	var l *LasLog
+	for j := 1; j < n; j++ {
+		l, _ = o.logByIndex(j)
+		newDept := make([]float64, o.expPoints, o.expPoints)
+		copy(newDept, l.dept)
+		l.dept = newDept
+
+		newLog := make([]float64, o.expPoints, o.expPoints)
+		copy(newLog, l.log)
+		l.log = newLog
+		o.Logs[l.Name] = *l
+	}
+}
+
 //~ASCII Log Data
 // 1419.2000 -9999.000 -9999.000     2.186     2.187
-// 1419.3000 -9999.000 -9999.000     2.203     2.205
+// 1419.3000 -9999.000 1.1   2.203     2.205
 func (o *Las) readDataSec(iScanner *bufio.Scanner) (int, error) {
 	var (
 		//m    int
@@ -481,13 +531,11 @@ func (o *Las) readDataSec(iScanner *bufio.Scanner) (int, error) {
 	o.currentLine++
 	n := len(o.Logs)
 	d, _ = o.logByIndex(0) //dept log
-	m := len(d.dept)
 	s := ""
 	for i = 0; iScanner.Scan(); i++ {
 		o.currentLine++
-		if i == m {
-			o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, "actual number of data lines more than expected, check the parameters: STRT, STOP, STEP"})
-			break //count of lines may be more (STOP-STRT)/STEP
+		if i == o.expPoints { //o.expPoints - оценённое количество точек исходя из шага
+			o.expandDept(d)
 		}
 
 		s = strings.TrimSpace(iScanner.Text())
@@ -495,34 +543,40 @@ func (o *Las) readDataSec(iScanner *bufio.Scanner) (int, error) {
 		//first column is DEPT
 		k := strings.IndexRune(s, ' ')
 		if k < 0 { //line must have n+1 column and n separated spaces block (+1 becouse first column DEPT)
-			o.nPoints = i
-			return i, fmt.Errorf("problem in data section, line: %d, read stop", o.currentLine)
+			o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, fmt.Sprintf("line: %d is empty, ignore", o.currentLine)})
+			i--
+			continue
 		}
 		dept, err = strconv.ParseFloat(s[:k], 64)
 		if err != nil {
-			o.nPoints = i
-			return i, fmt.Errorf("problem in data section, line: %d, first column '%s' not numeric, read stop", o.currentLine, s[:k])
+			o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, fmt.Sprintf("first column '%s' not numeric, ignore", s[:k])})
+			i--
+			continue
 		}
+		//fmt.Printf("dept len: %d, cap: %d; i = %d, m = %d\n", len(d.dept), cap(d.dept), i, o.expPoints)
 		d.dept[i] = dept
-		if (i > 1) && (o.stepWarning < 10) {
+		if i > 1 {
 			if math.Pow(((dept-d.dept[i-1])-(d.dept[i-1]-d.dept[i-2])), 2) > 0.1 {
 				o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, fmt.Sprintf("step %5.2f ≠ previously step %5.2f", (dept - d.dept[i-1]), (d.dept[i-1] - d.dept[i-2]))})
 				dept = d.dept[i-1] + o.Step
-				o.stepWarning++
 			}
 			if math.Pow(((dept-d.dept[i-1])-o.Step), 2) > 0.1 {
 				o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, fmt.Sprintf("actual step %5.2f ≠ global STEP %5.2f", (dept - d.dept[i-1]), o.Step)})
-				o.stepWarning++
 			}
 		}
 		s = strings.TrimSpace(s[k+1:]) //cut first column
 		for j := 1; j < (n - 1); j++ {
 			iSpace := strings.IndexRune(s, ' ')
-			if iSpace < 0 {
-				o.nPoints = i
-				return i, fmt.Errorf("space not found, line: %d, but not all columnd processed, read stop", o.currentLine)
+			switch iSpace {
+			case -1: //не все колонки прочитаны, а пробелов уже нет... пробуем игнорировать сроку заполняя оставшиеся каротажи NULLами
+				o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, "not all column readed, set log value to NULL"})
+			case 0:
+				v = o.Null
+			case 1:
+				v, err = strconv.ParseFloat(s[:1], 64)
+			default:
+				v, err = strconv.ParseFloat(s[:iSpace], 64) //strconv.ParseFloat(s[:iSpace-1], 64)
 			}
-			v, err = strconv.ParseFloat(s[:iSpace-1], 64)
 			if err != nil {
 				o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, fmt.Sprintf("can't convert string: '%s' to number, set to NULL", s[:iSpace-1])})
 				v = o.Null
@@ -530,17 +584,22 @@ func (o *Las) readDataSec(iScanner *bufio.Scanner) (int, error) {
 			l, err = o.logByIndex(j)
 			if err != nil {
 				o.nPoints = i
-				return i, errors.New("too much column, read stop")
+				return i, errors.New("internal ERROR, func (o *Las) readDataSec()::o.logByIndex(j) return error")
 			}
 			l.dept[i] = dept
 			l.log[i] = v
 			s = strings.TrimSpace(s[iSpace+1:])
 		}
+		//остаток - последняя колонка
 		v, err = strconv.ParseFloat(s, 64)
+		if err != nil {
+			o.addWarning(TWarning{directOnRead, lasSecData, o.currentLine, "not all column readed, set log value to NULL"})
+			v = o.Null
+		}
 		l, err = o.logByIndex(n - 1)
 		if err != nil {
 			o.nPoints = i
-			return i, errors.New("error with last column, read stop")
+			return i, errors.New("internal ERROR, func (o *Las) readDataSec()::o.logByIndex(j) return error on last column")
 		}
 		l.dept[i] = dept
 		l.log[i] = v
