@@ -6,7 +6,7 @@ STRT .M                              1.0 : Start depth
 STOP .M                             1.60 : Stop depth 
 STEP .M                             0.10 : Step 
 NULL .                          -9999.00 : Null value 
-WELL .                              WELL : 12-Карасёвская
+WELL .                              WELL : 12-Сплошная
 ~Curve Information
 #----------------------------------------------------------------
 #MNEM.UNIT              API CODE           CURVE DESCRIPTION

@@ -1,6 +1,6 @@
 ~Version Information
 #----------------------------------------------------------------
-VERS.             2.0 :cp_866 CWLS log ASCII Standard - VERSION 1.20
+VERS.             2.0 : CWLS log ASCII Standard - VERSION 1.20
 WRAP.              NO : One line per depth step
 ~Well Information
 #----------------------------------------------------------------
@@ -10,8 +10,8 @@ STRT .M                          2700.00 : Start depth
 STOP .M                          3189.40 : Stop depth 
 STEP .M                             0.10 : Step 
 NULL .                          -9999.00 : Null value 
-WELL .                     1-Карасёвская : 
-FLD  .                             FIELD : Южно-Танловское
+WELL .                     1-Вообщевская : 
+FLD  .                             FIELD : Вообщевское
 DATE .                              DATE : 15 05 74
 ~Curve Information
 #----------------------------------------------------------------
@@ -41,10 +41,8 @@ DFD  .G/S3                          1.24 : Drilling Fluid Density
 ~Other Information
 #----------------------------------------------------------------
 
-   This file has been produced by the DBMCRV32.DLL version 2.3.
+   This file has been produced by the .
    All Right Reserved.
-   (C) 1998-2002 by Glushkov Institute of Cybernetics, dep.#145.
-   GeoPoisk customer service: GeoPoisk@ukr.net, www.GeoPoisk.com
 
 #----------------------------------------------------------------
 #    Depth       APS   APScorr        KP       KPR       LOB       NOB     RTEFF       SWO

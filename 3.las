@@ -10,7 +10,7 @@
   NULL.                      -9999.0   : Null  values                    
   COMP.                         COMPANY:                                       
   WELL.                            WELL: 4                                     
-  FLD .                           FIELD: В-Прибрежная               
+  FLD .                           FIELD: Примерная               
   LOC .                        LOCATION:                                       
   CNTY.                          COUNTY:                                       
   STAT.                           STATE:                                       
@@ -30,18 +30,6 @@
  DFL.                              Loss:                                       
  DFV.                         Viscositu:                                       
  RMS.OHMM                   Resistivity:                                       
- TOOLS                              CIK:                                       
-                                     AK:                                       
-                                     RK:                                       
- ISTOCHNIK                           Pl:                                       
-                                  Cs137:                                       
- ETALONIR                          DATE:                                       
-                                    NTK:                                       
-                                   NTKS:                                       
-                                     GK:                                       
- REC LOG                              V:                                       
-                                    TAU:                                       
-                                 MASTAB:                                       
 # -------------REMARKS AREA-------------                                       
 # ========================================================================     
 ~Curve information                                                            
