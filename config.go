@@ -3,12 +3,8 @@ package main
 
 import (
 	"errors"
-	"io/ioutil"
-	"os"
 
-	"github.com/softlandia/xlib"
 	ini "gopkg.in/ini.v1"
-	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -57,10 +53,11 @@ func readGlobalConfig(fileName string) (x *Config, err error) {
 	x.logMissingReport = gini.Section("global").Key("logMissingReport").String()
 	x.lasMessageReport = gini.Section("global").Key("lasMessageReport").String()
 	x.lasWarningReport = gini.Section("global").Key("lasWarningReport").String()
-	x.maxWarningCount, _ = gini.Section("global").Key("maxWarningCount").Int()
+	x.maxWarningCount, err = gini.Section("global").Key("maxWarningCount").Int()
 	return x, err
 }
 
+/*
 func readConfig(ConfigName string) (x *Config, err error) {
 	var file []byte
 	if file, err = ioutil.ReadFile(ConfigName); err != nil {
@@ -97,3 +94,4 @@ func reloadConfig(configName string) (cfg *Config, err error) {
 	}
 	return nil, errNotModified
 }
+*/

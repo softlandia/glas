@@ -111,7 +111,7 @@ func main() {
 	}
 	color.Set(color.FgCyan)
 	fmt.Printf("init:\tok.\n")
-	fmt.Printf("precision:\t%v\n", Cfg.Epsilon)
+	//fmt.Printf("precision:\t%v\n", Cfg.Epsilon)
 	fmt.Printf("debug level:\t%v\n", Cfg.LogLevel)
 	fmt.Printf("dictionary:\t%v\n", Cfg.DicFile)
 	fmt.Printf("input path:\t%v\n", Cfg.Path)
@@ -269,6 +269,7 @@ func TEST(m int) {
 		fmt.Printf("TEST read 1.las ERROR, n = %d, must 7\n", n)
 		fmt.Println(err)
 	}
+	las.SaveWarning("1.warning.md")
 
 	err = las.setNull(Cfg.Null)
 	fmt.Println("set new null value done, error: ", err)

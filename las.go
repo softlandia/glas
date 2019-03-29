@@ -91,23 +91,23 @@ type Las struct {
 	iDuplicate   int                //индекс повторящейся мнемоники, увеличивается на 1 при нахождении дубля, начально 0
 	currentLine  int                //index of current line in readed file
 	warnings     []TWarning         //slice of warnings occure on read or write
-	countWarning int                //count of warning, if count > 20 then stop collecting
+	countWarning int                //count of warning, if count > Cfg.maxWarningCount
 }
 
 //getStepFromData - return step from data section
 //open and read 2 line from section ~A and determine step
 //close file
-//return <0 if error occure
+//return o.Null if error occure
 func (o *Las) getStepFromData(fileName string) float64 {
 	iFile, err := os.Open(fileName) // open file to READ
 	if err != nil {
-		return -1.0
+		return o.Null
 	}
 	defer iFile.Close()
 
 	_, iScanner, err := xlib.SeekFileToString(fileName, "~A")
 	if err != nil {
-		return -1.0
+		return o.Null
 	}
 
 	s := ""
@@ -121,11 +121,11 @@ func (o *Las) getStepFromData(fileName string) float64 {
 		}
 		k := strings.IndexRune(s, ' ')
 		if k < 0 { //data line must have minimum 2 column separated ' ' space
-			return -1.0
+			return o.Null
 		}
 		dept1, err = strconv.ParseFloat(s[:k], 64)
 		if err != nil {
-			return -1.0
+			return o.Null
 		}
 		j++
 		if j == 2 {
@@ -133,7 +133,8 @@ func (o *Las) getStepFromData(fileName string) float64 {
 		}
 		dept2 = dept1
 	}
-	return 1.0
+	//если мы попали сюда, то всё грусно, в файле после ~A не нашлось двух строчек с данными... или пустые строчки или комменты
+	return o.Null
 }
 
 //setNull - change parameter NULL in WELL INFO section and in all logs
@@ -232,11 +233,11 @@ func (o *Las) selectSection(r rune) int {
 }
 
 //make test of loaded well info section
+//return error <> nil in one case, if getStepFromData return error
 func (o *Las) testWellInfo() error {
-	//STEP
 	if o.Step == 0.0 {
-		o.Step = o.getStepFromData(o.FileName)
-		if o.Step < 0 {
+		o.Step = o.getStepFromData(o.FileName) // return o.Null if cannot calculate step from data
+		if o.Step == o.Null {
 			return errors.New("invalid STEP parameter, equal 0. and invalid step in data")
 		}
 		o.addWarning(TWarning{directOnRead, lasSecWellInfo, -1, fmt.Sprintf("invalid STEP parameter, equal 0. replace to %4.3f", o.Step)})
@@ -245,21 +246,55 @@ func (o *Las) testWellInfo() error {
 		o.Null = Cfg.Null
 		o.addWarning(TWarning{directOnRead, lasSecWellInfo, -1, fmt.Sprintf("invalid NULL parameter, equal 0. replace to %4.3f", o.Null)})
 	}
-	if math.Abs(o.Stop-o.Strt) < 0.2 {
-		//TODO replace error to warning. invalid STRT and/or STOP replace to actual
-		return errors.New("invalid STRT or STOP parameter, too small distance")
+	if math.Abs(o.Stop-o.Strt) < 0.1 {
+		o.addWarning(TWarning{directOnRead, lasSecWellInfo, -1, fmt.Sprintf("invalid STRT: %4.3f or STOP: %4.3f, will be replace to actually", o.Strt, o.Stop)})
 	}
 	return nil
 }
 
-//Wraped - return true if las file have WRAP == YES
-func (o *Las) Wraped() bool {
-	return (strings.Index(o.Wrap, "Y") >= 0)
+//IsWrapOn - return true if WRAP == YES
+func (o *Las) IsWrapOn() bool {
+	return (strings.Index(strings.ToUpper(o.Wrap), "Y") >= 0)
+}
+
+//WarningCount - return count of warning
+func (o *Las) WarningCount() int {
+	return len(o.warnings)
+}
+
+//SaveWarning - save to file all warning
+func (o *Las) SaveWarning(fileName string) error {
+	if o.WarningCount() == 0 {
+		return nil
+	}
+	oFile, err := os.Create(fileName)
+	if err != nil {
+		return err
+	}
+	_ = o.SaveWarningToFile(oFile)
+	oFile.Close()
+	return nil
+}
+
+//SaveWarningToFile - store all warning to file
+//file not close
+func (o *Las) SaveWarningToFile(oFile *os.File) int {
+	if oFile == nil {
+		return 0
+	}
+	n := o.WarningCount()
+	if n == 0 {
+		return 0
+	}
+	oFile.WriteString("**file: " + o.FileName + "**\n")
+	for i, w := range o.warnings {
+		fmt.Fprintf(oFile, "%d, dir: %d,\tline: %d,\tdesc: %s\n", i, w.direct, w.line, w.desc)
+	}
+	return n
 }
 
 func (o *Las) addWarning(w TWarning) {
 	if o.countWarning < Cfg.maxWarningCount {
-		//w.desc = fmt.Sprintf("file: '%s' > "+w.desc, o.FileName)
 		o.warnings = append(o.warnings, w)
 		o.countWarning++
 		if o.countWarning == Cfg.maxWarningCount {
@@ -356,7 +391,7 @@ func (o *Las) loadHeader(fileName string) error {
 				//проверка корректности данных секции WELL INFO перез загрузкой кривых и данных
 				err = o.testWellInfo() //STEP != 0, NULL != 0, STRT & STOP
 				if err != nil {
-					return err
+					return err // двойная ошибка, плох параметр STEP и не удалось вычислить STEP по данным, с данными проблема...
 				}
 				//возможно значение STEP изменилось... оцениваем количество точек и сохраняем
 				o.expPoints = o.getCountPoint()

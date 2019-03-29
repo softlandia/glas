@@ -26,15 +26,10 @@ func repaireOneFile(signal chan int, las *Las, inputFolder, folderOutput string,
 		return
 	}
 	n, err := las.Open(las.FileName)
-	if len(las.warnings) > 0 {
-		wFile.WriteString("**file: " + las.FileName + "**\n")
-		for i, w := range las.warnings {
-			fmt.Fprintf(wFile, "%d; dir: %d;\tsec: %d;\tl: %d;\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
-		}
-		wFile.WriteString("\n")
-	}
+	las.SaveWarningToFile(wFile)
+	wFile.WriteString("\n")
 
-	if las.Wraped() {
+	if las.IsWrapOn() {
 		*messages = append(*messages, fmt.Sprintf("las file %s ignored, WRAP=YES\n", las.FileName))
 		signal <- 1
 		return
@@ -125,14 +120,9 @@ func statLas(signal chan int, wg *sync.WaitGroup, oFile, wFile *os.File, missing
 	n, err := las.Open(f)
 
 	//write warnings
-	if len(las.warnings) > 0 {
-		wFile.WriteString("**file: " + las.FileName + "**\n")
-		for i, w := range las.warnings {
-			fmt.Fprintf(wFile, "%d; dir: %d;\tsec: %d;\tl: %d;\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
-		}
-		wFile.WriteString("\n")
-	}
-	if las.Wraped() {
+	las.SaveWarningToFile(wFile)
+	wFile.WriteString("\n")
+	if las.IsWrapOn() {
 		*messages = append(*messages, fmt.Sprintf("las file '%s' ignore, WRAP=YES\n", f))
 		las = nil
 		signal <- 1
