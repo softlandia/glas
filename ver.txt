@@ -1,0 +1,3 @@
+0.0.4
+branch "glasio"
+Переход на библиотеку glasio https://github.com/softlandia/glasio

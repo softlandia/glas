@@ -14,8 +14,7 @@ var (
 
 // Config - структура для считывания конфигурационного файла
 type Config struct {
-	//Epsilon - точность обратоки чисел с плавающей запятой
-	Epsilon          float64
+	Epsilon          float64 //точность обработки чисел с плавающей запятой, не используется
 	LogLevel         string
 	DicFile          string
 	Path             string

@@ -1,7 +1,7 @@
 ﻿# glas - command line tools for preprocessing LAS files
 
 (с) softlandia@gmail.com / sergienko vitaly  
-v 0.0.3 4/03/2019
+v 0.0.4 3/08/2019
 
 утилита предназначена для предварительной обработки LAS файлов  
 программа бесплатна, доступна на (https://github.com/softlandia/glas) 

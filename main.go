@@ -14,6 +14,7 @@ import (
 	"os"
 
 	"github.com/fatih/color"
+	"github.com/softlandia/glasio"
 	"github.com/softlandia/xlib"
 	"gopkg.in/ini.v1"
 )
@@ -260,7 +261,7 @@ func makeFilesList(fileList *[]string, path string) int {
 //TODO report las.warning.md written without filename
 func TEST(m int) {
 	//test file "1.las"
-	las := NewLas()
+	las := glasio.NewLas()
 	n, err := las.Open("1.las")
 	if n == 7 {
 		fmt.Println("TEST read 1.las OK")
@@ -271,8 +272,8 @@ func TEST(m int) {
 	}
 	las.SaveWarning("1.warning.md")
 
-	err = las.setNull(Cfg.Null)
-	fmt.Println("set new null value done, error: ", err)
+	/*err = las.setNull(Cfg.Null)
+	fmt.Println("set new null value done, error: ", err)*/
 
 	err = las.Save("-1.las")
 	if err != nil {
@@ -282,7 +283,7 @@ func TEST(m int) {
 	}
 
 	las = nil
-	las = NewLas()
+	las = glasio.NewLas()
 	n, err = las.Open("-1.las")
 	if (n == 7) && (las.Null == -999.25) {
 		fmt.Println("TEST read -1.las OK")
@@ -294,7 +295,7 @@ func TEST(m int) {
 	}
 
 	las = nil
-	las = NewLas()
+	las = glasio.NewLas()
 	n, err = las.Open("2.las")
 	if n == 4895 {
 		fmt.Println("TEST read 2.las OK")
@@ -312,7 +313,7 @@ func TEST(m int) {
 	}
 	las = nil
 
-	las = NewLas()
+	las = glasio.NewLas()
 	n, err = las.Open("4.las")
 	if err != nil {
 		fmt.Printf("error: %v\n", err)
@@ -322,23 +323,23 @@ func TEST(m int) {
 	} else {
 		fmt.Printf("TEST read 4.las ERROR, count data must 23, actualy: %d\n", n)
 	}
-	oFile, _ := os.Create(Cfg.lasWarningReport)
-	defer oFile.Close()
-	oFile.WriteString("file: " + las.FileName + "\n")
-	for i, w := range las.warnings {
-		fmt.Fprintf(oFile, "%d, dir: %d,\tsec: %d,\tl: %d,\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
-	}
+	/*	oFile, _ := os.Create(Cfg.lasWarningReport)
+		defer oFile.Close()
+		oFile.WriteString("file: " + las.FileName + "\n")
+		for i, w := range las.Warnings {
+			fmt.Fprintf(oFile, "%d, dir: %d,\tsec: %d,\tl: %d,\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
+		}
 
-	las.FileName = "-4.las"
-	err = las.Save(las.FileName)
-	if err != nil {
-		fmt.Printf("error: %v on save file -4.las\n", err)
-	} else {
-		fmt.Printf("save file -4.las OK\n")
-	}
-	oFile.WriteString("save file: " + las.FileName + "\n")
-	for i, w := range las.warnings {
-		fmt.Fprintf(oFile, "%d, dir: %d,\tsec: %d,\tl: %d,\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
-	}
+		las.FileName = "-4.las"
+		err = las.Save(las.FileName)
+		if err != nil {
+			fmt.Printf("error: %v on save file -4.las\n", err)
+		} else {
+			fmt.Printf("save file -4.las OK\n")
+		}
+		oFile.WriteString("save file: " + las.FileName + "\n")
+		for i, w := range las.Warnings {
+			fmt.Fprintf(oFile, "%d, dir: %d,\tsec: %d,\tl: %d,\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
+		}*/
 	las = nil
 }

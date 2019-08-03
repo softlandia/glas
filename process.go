@@ -14,11 +14,12 @@ import (
 	"time"
 
 	"github.com/schollz/progressbar"
+	"github.com/softlandia/glasio"
 )
 
 //1. read las
 //2. save las to new folder
-func repaireOneFile(signal chan int, las *Las, inputFolder, folderOutput string, wFile *os.File, messages *[]string, wg *sync.WaitGroup) {
+func repaireOneFile(signal chan int, las *glasio.Las, inputFolder, folderOutput string, wFile *os.File, messages *[]string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if las == nil {
 		*messages = append(*messages, "las is nil")
@@ -29,7 +30,7 @@ func repaireOneFile(signal chan int, las *Las, inputFolder, folderOutput string,
 	las.SaveWarningToFile(wFile)
 	wFile.WriteString("\n")
 
-	if las.IsWrapOn() {
+	if las.IsWraped() {
 		*messages = append(*messages, fmt.Sprintf("las file %s ignored, WRAP=YES\n", las.FileName))
 		signal <- 1
 		return
@@ -93,7 +94,7 @@ func repairLas(fl *[]string, dic *map[string]string, inputFolder, folderOutput, 
 
 	for _, f := range *fl {
 		wg.Add(1)
-		las := NewLas()
+		las := glasio.NewLas()
 		las.LogDic = &Mnemonic
 		las.VocDic = &Dic
 		las.FileName = f
@@ -114,7 +115,7 @@ func repairLas(fl *[]string, dic *map[string]string, inputFolder, folderOutput, 
 
 func statLas(signal chan int, wg *sync.WaitGroup, oFile, wFile *os.File, missingMnemonic map[string]string, f string, messages *[]string) {
 	defer wg.Done()
-	las := NewLas()
+	las := glasio.NewLas()
 	las.LogDic = &Mnemonic
 	las.VocDic = &Dic
 	n, err := las.Open(f)
@@ -122,7 +123,7 @@ func statLas(signal chan int, wg *sync.WaitGroup, oFile, wFile *os.File, missing
 	//write warnings
 	las.SaveWarningToFile(wFile)
 	wFile.WriteString("\n")
-	if las.IsWrapOn() {
+	if las.IsWraped() {
 		*messages = append(*messages, fmt.Sprintf("las file '%s' ignore, WRAP=YES\n", f))
 		las = nil
 		signal <- 1
@@ -143,10 +144,10 @@ func statLas(signal chan int, wg *sync.WaitGroup, oFile, wFile *os.File, missing
 	fmt.Fprintf(oFile, "##logs in file: '%s'##\n", f)
 	for k, v := range las.Logs {
 		if len(v.Mnemonic) == 0 {
-			fmt.Fprintf(oFile, "*input log: %s \t internal: %s \t mnemonic:%s*\n", v.iName, k, v.Mnemonic)
-			missingMnemonic[v.iName] = v.iName
+			fmt.Fprintf(oFile, "*input log: %s \t internal: %s \t mnemonic:%s*\n", v.IName, k, v.Mnemonic)
+			missingMnemonic[v.IName] = v.IName
 		} else {
-			fmt.Fprintf(oFile, "input log: %s \t internal: %s \t mnemonic: %s\n", v.iName, k, v.Mnemonic)
+			fmt.Fprintf(oFile, "input log: %s \t internal: %s \t mnemonic: %s\n", v.IName, k, v.Mnemonic)
 		}
 	}
 	fmt.Fprintf(oFile, "\n")

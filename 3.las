@@ -5,7 +5,7 @@
 # MNEM.UNIT         DATA TYPE  INFORMATION                                     
 # ====.================================: ===================                   
   STRT.M                     2800.5    : First depth in file              
-  STOP.M                     3199.3    : Last depth in file               
+  STOP.M                     2800.4    : Last depth in file               
   STEP.M                     0.100     : Depth increment                   
   NULL.                      -9999.0   : Null  values                    
   COMP.                         COMPANY:                                       
