@@ -28,7 +28,6 @@ func repaireOneFile(signal chan int, las *glasio.Las, inputFolder, folderOutput 
 	}
 	n, err := las.Open(las.FileName)
 	las.SaveWarningToFile(wFile)
-	wFile.WriteString("\n")
 
 	if las.IsWraped() {
 		*messages = append(*messages, fmt.Sprintf("las file %s ignored, WRAP=YES\n", las.FileName))
@@ -54,7 +53,6 @@ func repaireOneFile(signal chan int, las *glasio.Las, inputFolder, folderOutput 
 		signal <- 1
 		return
 	}
-	//	*msg = ""
 	signal <- 1
 }
 
@@ -113,45 +111,88 @@ func repairLas(fl *[]string, dic *map[string]string, inputFolder, folderOutput, 
 	return nil
 }
 
-func statLas(signal chan int, wg *sync.WaitGroup, oFile, wFile *os.File, missingMnemonic map[string]string, f string, messages *[]string) {
-	defer wg.Done()
-	las := glasio.NewLas()
-	las.LogDic = &Mnemonic
-	las.VocDic = &Dic
-	n, err := las.Open(f)
+func (m *tMessages) msgFileIsWraped(fn string) string {
+	return fmt.Sprintf("file '%s' ignore, WRAP=YES\n", fn)
+}
 
-	//write warnings
-	las.SaveWarningToFile(wFile)
-	wFile.WriteString("\n")
+func (m *tMessages) msgFileNoData(fn string) string {
+	return fmt.Sprintf("*error* file '%s', no data read ,*ignore*\n", fn)
+}
+
+func (m *tMessages) msgFileOpenWarning(fn string, err error) string {
+	return fmt.Sprintf("**warning** file '%s' : %v **passed**\n", fn, err)
+}
+
+const (
+	statLasCheck_OPEN_WRN = 30   // - open return warning
+	statLasCheck_WRNG     = 1000 // - after this value warning is IMPORTANT, дальнейшая работа с файлом нежелательна
+	statLasCheck_WRAP     = 1010 // - WRAP is ON
+	statLasCheck_DATA     = 1020 // - data not readed
+)
+
+// LasLog - store logging info about las, fills up info from las.open()
+type LasLog struct {
+	filename        string              // file to read
+	readedNumPoints int                 // number points readed from file
+	errorOnOpen     error               // result from las.open()
+	msgOpen         glasio.TLasWarnings // сообщения формируемые в процессе открытия las файла
+	msgCheck        tMessages           // информация об особых случаях, генерируется statLas()
+	msgReport       tInfoReport         // информация о каждом методе хранящемся в LAS файле, записывается в "log.info.md"
+	missMnemonic    tMMnemonic
+}
+
+// NewLasLog - lasLog constructor
+func NewLasLog(filename string) LasLog {
+	var lasLog LasLog
+	lasLog.filename = filename
+	lasLog.msgOpen = nil
+	lasLog.msgCheck = make(tMessages, 0, 10)
+	lasLog.msgReport = make(tInfoReport, 0, 10)
+	lasLog.missMnemonic = make(tMMnemonic, 0)
+	return lasLog
+}
+
+// считывает файл и собирает все сообщения в один объект
+func lasOpenCheck(filename string) LasLog {
+	lasLog := NewLasLog(filename)
+
+	las := glasio.NewLas() // TODO make special constructor to initialize with global Mnemonic and Dic
+	las.LogDic = &Mnemonic // global var
+	las.VocDic = &Dic      // global var
+
+	lasLog.readedNumPoints, lasLog.errorOnOpen = las.Open(filename)
+	lasLog.msgOpen = las.Warnings
+
 	if las.IsWraped() {
-		*messages = append(*messages, fmt.Sprintf("las file '%s' ignore, WRAP=YES\n", f))
-		las = nil
-		signal <- 1
-		return
+		lasLog.msgCheck = append(lasLog.msgCheck, lasLog.msgCheck.msgFileIsWraped(filename))
+		//return statLasCheck_WRAP
+	}
+	if las.NumPoints() == 0 {
+		lasLog.msgCheck = append(lasLog.msgCheck, lasLog.msgCheck.msgFileNoData(filename))
+		//return statLasCheck_DATA
+	}
+	if lasLog.errorOnOpen != nil {
+		lasLog.msgCheck = append(lasLog.msgCheck, lasLog.msgCheck.msgFileOpenWarning(filename, lasLog.errorOnOpen))
 	}
 
-	if n == 0 {
-		*messages = append(*messages, fmt.Sprintf("*error* on las file '%s', no data read ,*ignore*\n", f))
-		las = nil
-		signal <- 1
-		return
-	}
-
-	if err != nil {
-		*messages = append(*messages, fmt.Sprintf("**warning** on las file '%s' : %v **passed**\n", f, err))
-	}
-
-	fmt.Fprintf(oFile, "##logs in file: '%s'##\n", f)
 	for k, v := range las.Logs {
-		if len(v.Mnemonic) == 0 {
-			fmt.Fprintf(oFile, "*input log: %s \t internal: %s \t mnemonic:%s*\n", v.IName, k, v.Mnemonic)
-			missingMnemonic[v.IName] = v.IName
+		if len(v.Mnemonic) == 0 { //v.Mnemonic содержит автоопределённую стандартную мнемонику, если она пустая, значит пропущена, помечаем **
+			lasLog.msgReport = append(lasLog.msgReport, fmt.Sprintf("*input log: %s \t internal: %s \t mnemonic:%s*\n", v.IName, k, v.Mnemonic))
+			lasLog.missMnemonic[v.IName] = v.IName
 		} else {
-			fmt.Fprintf(oFile, "input log: %s \t internal: %s \t mnemonic: %s\n", v.IName, k, v.Mnemonic)
+			lasLog.msgReport = append(lasLog.msgReport, fmt.Sprintf("input log: %s \t internal: %s \t mnemonic: %s\n", v.IName, k, v.Mnemonic))
 		}
 	}
-	fmt.Fprintf(oFile, "\n")
+
 	las = nil
+	return lasLog
+}
+
+// messages - slice of messages, generates from las.Open()
+// wFile - file to write warnings
+func statLas(signal chan int, wg *sync.WaitGroup, fileName string, lasLogger *LasLogger) {
+	defer wg.Done()
+	lasLogger.add(lasOpenCheck(fileName))
 	signal <- 1
 }
 
@@ -174,60 +215,105 @@ func statLasListener(signal chan int, count int, wg *sync.WaitGroup) {
 //1. формируется список каротажей не имеющих словарной мнемоники - logMissingReport
 //2. формируется список ошибочных файлов - write to console (using log.)
 //3. формируется отчёт о предупреждениях при прочтении las файлов - lasWarningReport
-//4. формируется отчёт прочитанных файлах, для каких каротажей найдена подстановка, для каких нет - reportFail
-func statisticLas(fl *[]string, dic *map[string]string, reportLogList, reportLog, lasWarningReport, logMissingReport string) error {
-	var missingMnemonic map[string]string
-	missingMnemonic = make(map[string]string)
-	var signal = make(chan int)
-
+//4. формируется отчёт прочитанных файлах, для каких каротажей найдена подстановка, для каких нет - fileInfoReport
+func statisticLas(fl *[]string, dic *map[string]string, cfg *Config) error {
 	log.Printf("make log statistic")
 	if len(*fl) == 0 {
-		return errors.New("file to statistic not found")
+		return errors.New("files to statistic not found")
 	}
-	oFile, err := os.Create(reportLogList)
-	if err != nil {
-		log.Print("report file: '", reportLogList, "' not open to write, ", err)
-		return err
-	}
-	defer oFile.Close()
-	oFile.WriteString("#list of logs#\n\n")
-
-	wFile, _ := os.Create(lasWarningReport)
-	defer wFile.Close()
-	wFile.WriteString("#list of warnings#\n")
-
-	lFile, _ := os.Create(reportLog)
-	defer lFile.Close()
-	lFile.WriteString("#messages from statisticLas()#\n")
-
+	var signal = make(chan int)
+	lasLogger := make(LasLogger, 0, len(*fl))
 	var wg sync.WaitGroup
 	tStart := time.Now()
-	messages := make([]string, 0, len(*fl))
-
 	wg.Add(1)
 	go statLasListener(signal, len(*fl), &wg)
-
 	for _, f := range *fl {
 		wg.Add(1)
-		go statLas(signal, &wg, oFile, wFile, missingMnemonic, f, &messages) //TODO наблюдается несинхронная запись в файл log.ingo.md
+		go statLas(signal, &wg, f, &lasLogger)
 	}
 	wg.Wait()
+	lasLogger.save(cfg)
 	log.Printf("info done, elapsed: %v\n", time.Since(tStart))
+	return nil
+}
 
-	for _, msg := range messages {
-		lFile.WriteString(msg)
+// LasLogger - store messages from all las files
+type LasLogger []LasLog
+
+func (l *LasLogger) add(lasLog LasLog) {
+	*l = append(*l, lasLog)
+}
+
+func (l LasLogger) save(cfg *Config) error {
+	msgFile, err := os.Create(cfg.lasMessageReport)
+	if err != nil {
+		return fmt.Errorf("report file: '%s' not open to write: %v", cfg.lasMessageReport, err)
 	}
+	defer msgFile.Close()
+	msgFile.WriteString("#MESSAGES#\n")
+	msgFile.WriteString("##данные сообщения генерируются при чтении las файла, это различные проблемы связанные со структурой файла##\n\n")
 
-	mFile, _ := os.Create(logMissingReport)
-	defer mFile.Close()
-	mFile.WriteString("missing log\n")
-	keys := make([]string, 0, len(missingMnemonic))
-	for k := range missingMnemonic {
+	checkFile, err := os.Create(cfg.lasCheckReport)
+	if err != nil {
+		return fmt.Errorf("report file: '%s' not open to write: %v", cfg.lasCheckReport, err)
+	}
+	defer checkFile.Close()
+	checkFile.WriteString("#WARNINGS#\n")
+	checkFile.WriteString("##сообщения о существенных проблемах с файлом##\n")
+
+	infoFile, err := os.Create(cfg.lasInfoReport)
+	if err != nil {
+		return fmt.Errorf("report file: '%s' not open to write: %v", cfg.lasInfoReport, err)
+	}
+	defer infoFile.Close()
+	infoFile.WriteString("#list of logs#\n\n")
+
+	missFile, err := os.Create(cfg.logMissingReport)
+	if err != nil {
+		return fmt.Errorf("report file: '%s' not open to write: %v", cfg.logMissingReport, err)
+	}
+	defer missFile.Close()
+	missFile.WriteString("#missing logs#\n\n")
+
+	for _, v := range l {
+		msgFile.WriteString("**file: " + v.filename + "**\n")
+		v.msgOpen.SaveWarningToFile(msgFile)
+		v.msgCheck.save(checkFile)
+		v.missMnemonic.save(missFile)
+		v.msgReport.save(infoFile, v.filename)
+	}
+	return nil
+}
+
+// store messages from las.Open()
+type tMessages []string
+
+func (m *tMessages) save(f *os.File) {
+	for _, msg := range *m {
+		f.WriteString(msg)
+	}
+}
+
+type tInfoReport []string
+
+func (ir *tInfoReport) save(f *os.File, filename string) {
+
+	fmt.Fprintf(f, "##logs in file: '%s'##\n", filename)
+	for _, s := range *ir {
+		f.WriteString(s)
+	}
+	f.WriteString("\n")
+}
+
+type tMMnemonic map[string]string
+
+func (mm *tMMnemonic) save(f *os.File) {
+	keys := make([]string, 0, len(*mm))
+	for k := range *mm {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		mFile.WriteString(missingMnemonic[k] + "\n")
+		f.WriteString((*mm)[k] + "\n")
 	}
-	return nil
 }

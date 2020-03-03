@@ -1,6 +1,10 @@
 // glas
-// Copyright 2018 softlandia@gmail.com
+// Copyright 2018 — 2020 softlandia@gmail.com
 // Обработка las файлов. Построение словаря и замена мнемоник на справочные
+
+// TODO убрать поясняющую строку в разделе ~A
+
+// TODO ввести настройку для количества знаков после запятой при записи данных
 
 // TODO может быть сделать возможность задавать правила на которые выполняется проверка
 //      например: FIELD == "Весеннее"
@@ -120,10 +124,10 @@ func main() {
 	fmt.Printf("std NULL:\t%v\n", Cfg.Null)
 	fmt.Printf("replace NULL:\t%v\n", Cfg.NullReplace)
 	fmt.Printf("verify date:\t%v\n", Cfg.verifyDate)
-	fmt.Printf("report files:\t'%s', '%s'\n", Cfg.logFailReport, Cfg.logGoodReport)
+	fmt.Printf("report files:\t'%s'\n", Cfg.lasInfoReport)
 	fmt.Printf("message report:\t%s\n", Cfg.lasMessageReport)
 	fmt.Printf("missing log:\t%s\n", Cfg.logMissingReport)
-	fmt.Printf("warning report:\t%s\n", Cfg.lasWarningReport)
+	fmt.Printf("warning report:\t%s\n", Cfg.lasCheckReport)
 
 	color.Set(color.FgYellow, color.Bold)
 	fmt.Printf("command:\t%v\n", Cfg.Comand)
@@ -143,10 +147,10 @@ func main() {
 		log.Println("verify las:")
 	case "repair":
 		log.Println("repaire las:")
-		repairLas(&fileList, &Dic, Cfg.Path, Cfg.pathToRepaire, Cfg.lasMessageReport, Cfg.lasWarningReport)
+		repairLas(&fileList, &Dic, Cfg.Path, Cfg.pathToRepaire, Cfg.lasMessageReport, Cfg.lasCheckReport)
 	case "info":
-		log.Println("collect log info:")
-		statisticLas(&fileList, &Dic, Cfg.logFailReport, Cfg.lasMessageReport, Cfg.lasWarningReport, Cfg.logMissingReport)
+		log.Println("collect log info:") //fileMsgOpen, fileMsgCheck, fileReport, fileLogMissing
+		statisticLas(&fileList, &Dic, Cfg)
 	}
 }
 
@@ -262,6 +266,7 @@ func makeFilesList(fileList *[]string, path string) int {
 func TEST(m int) {
 	//test file "1.las"
 	las := glasio.NewLas()
+	//las.maxWarningCount = 25
 	n, err := las.Open("1.las")
 	if n == 7 {
 		fmt.Println("TEST read 1.las OK")
@@ -323,23 +328,5 @@ func TEST(m int) {
 	} else {
 		fmt.Printf("TEST read 4.las ERROR, count data must 23, actualy: %d\n", n)
 	}
-	/*	oFile, _ := os.Create(Cfg.lasWarningReport)
-		defer oFile.Close()
-		oFile.WriteString("file: " + las.FileName + "\n")
-		for i, w := range las.Warnings {
-			fmt.Fprintf(oFile, "%d, dir: %d,\tsec: %d,\tl: %d,\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
-		}
-
-		las.FileName = "-4.las"
-		err = las.Save(las.FileName)
-		if err != nil {
-			fmt.Printf("error: %v on save file -4.las\n", err)
-		} else {
-			fmt.Printf("save file -4.las OK\n")
-		}
-		oFile.WriteString("save file: " + las.FileName + "\n")
-		for i, w := range las.Warnings {
-			fmt.Fprintf(oFile, "%d, dir: %d,\tsec: %d,\tl: %d,\tdesc: %s\n", i, w.direct, w.section, w.line, w.desc)
-		}*/
 	las = nil
 }

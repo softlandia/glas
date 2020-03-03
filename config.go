@@ -4,7 +4,7 @@ package main
 import (
 	"errors"
 
-	ini "gopkg.in/ini.v1"
+	ini "github.com/go-ini/ini"
 )
 
 var (
@@ -23,11 +23,10 @@ type Config struct {
 	Null             float64
 	NullReplace      bool
 	verifyDate       bool
-	logGoodReport    string
-	logFailReport    string
-	logMissingReport string
+	lasInfoReport    string
+	lasCheckReport   string
 	lasMessageReport string
-	lasWarningReport string
+	logMissingReport string
 	maxWarningCount  int
 }
 
@@ -47,50 +46,10 @@ func readGlobalConfig(fileName string) (x *Config, err error) {
 	x.Null, err = gini.Section("global").Key("stdNull").Float64()
 	x.NullReplace, err = gini.Section("global").Key("replaceNull").Bool()
 	x.verifyDate, err = gini.Section("global").Key("verifyDate").Bool()
-	x.logGoodReport = gini.Section("global").Key("logGoodReport").String()
-	x.logFailReport = gini.Section("global").Key("logFailReport").String()
-	x.logMissingReport = gini.Section("global").Key("logMissingReport").String()
+	x.lasInfoReport = gini.Section("global").Key("lasInfoReport").String()
+	x.lasCheckReport = gini.Section("global").Key("lasCheckReport").String()
 	x.lasMessageReport = gini.Section("global").Key("lasMessageReport").String()
-	x.lasWarningReport = gini.Section("global").Key("lasWarningReport").String()
+	x.logMissingReport = gini.Section("global").Key("logMissingReport").String()
 	x.maxWarningCount, err = gini.Section("global").Key("maxWarningCount").Int()
 	return x, err
 }
-
-/*
-func readConfig(ConfigName string) (x *Config, err error) {
-	var file []byte
-	if file, err = ioutil.ReadFile(ConfigName); err != nil {
-		return nil, err
-	}
-	x = new(Config)
-	if err = yaml.Unmarshal(file, x); err != nil {
-		return nil, err
-	}
-	if x.LogLevel == "" {
-		x.LogLevel = "ERROR"
-	}
-	if x.Epsilon == 0.0 {
-		x.Epsilon = xlib.Epsilon
-	}
-	return x, nil
-}
-
-//Проверяет время изменения конфигурационного файла
-//и перезагружает его если он изменился
-//Возвращает errNotModified если изменений нет
-func reloadConfig(configName string) (cfg *Config, err error) {
-	info, err := os.Stat(configName)
-	if err != nil {
-		return nil, err
-	}
-	if configModtime != info.ModTime().UnixNano() {
-		configModtime = info.ModTime().UnixNano()
-		cfg, err = readConfig(configName)
-		if err != nil {
-			return nil, err
-		}
-		return cfg, nil
-	}
-	return nil, errNotModified
-}
-*/
